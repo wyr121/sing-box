@@ -39,19 +39,11 @@ func (c *STDServerConfig) SetServerName(serverName string) {
 }
 
 func (c *STDServerConfig) NextProtos() []string {
-	if c.acmeService != nil && len(c.config.NextProtos) > 1 && c.config.NextProtos[0] == ACMETLS1Protocol {
-		return c.config.NextProtos[1:]
-	} else {
-		return c.config.NextProtos
-	}
+	return c.config.NextProtos
 }
 
 func (c *STDServerConfig) SetNextProtos(nextProto []string) {
-	if c.acmeService != nil && len(c.config.NextProtos) > 1 && c.config.NextProtos[0] == ACMETLS1Protocol {
-		c.config.NextProtos = append(c.config.NextProtos[:1], nextProto...)
-	} else {
-		c.config.NextProtos = nextProto
-	}
+	c.config.NextProtos = nextProto
 }
 
 func (c *STDServerConfig) Config() (*STDConfig, error) {

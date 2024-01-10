@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"time"
 
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/common/tls"
@@ -88,12 +87,6 @@ func NewHysteria2(ctx context.Context, router adapter.Router, logger log.Context
 		},
 		tlsConfig: tlsConfig,
 	}
-	var udpTimeout time.Duration
-	if options.UDPTimeout != 0 {
-		udpTimeout = time.Duration(options.UDPTimeout)
-	} else {
-		udpTimeout = C.UDPTimeout
-	}
 	service, err := hysteria2.NewService[int](hysteria2.ServiceOptions{
 		Context:               ctx,
 		Logger:                logger,
@@ -103,7 +96,6 @@ func NewHysteria2(ctx context.Context, router adapter.Router, logger log.Context
 		SalamanderPassword:    salamanderPassword,
 		TLSConfig:             tlsConfig,
 		IgnoreClientBandwidth: options.IgnoreClientBandwidth,
-		UDPTimeout:            udpTimeout,
 		Handler:               adapter.NewUpstreamHandler(adapter.InboundContext{}, inbound.newConnection, inbound.newPacketConnection, nil),
 		MasqueradeHandler:     masqueradeHandler,
 	})

@@ -5,6 +5,7 @@ icon: material/alert-decagram
 !!! quote "Changes in sing-box 1.8.0"
 
     :material-plus: [gso](#gso)  
+    :material-plus: [gso_max_size](#gso_max_size)  
     :material-alert-decagram: [stack](#stack)
 
 !!! quote ""
@@ -22,6 +23,7 @@ icon: material/alert-decagram
   "inet6_address": "fdfe:dcba:9876::1/126",
   "mtu": 9000,
   "gso": false,
+  "gso_max_size": 65536,
   "auto_route": true,
   "strict_route": true,
   "inet4_route_address": [
@@ -39,7 +41,6 @@ icon: material/alert-decagram
     "fc00::/7"
   ],
   "endpoint_independent_nat": false,
-  "udp_timeout": "5m",
   "stack": "system",
   "include_interface": [
     "lan0"
@@ -118,6 +119,18 @@ The maximum transmission unit.
     Only supported on Linux.
 
 Enable generic segmentation offload.
+
+#### gso_max_size
+
+!!! question "Since sing-box 1.8.0"
+
+!!! quote ""
+
+    Only supported on Linux.
+
+Maximum GSO packet size.
+
+`65536` is used by default.
 
 #### auto_route
 
@@ -262,4 +275,4 @@ System HTTP proxy settings.
 
 ### Listen Fields
 
-See [Listen Fields](/configuration/shared/listen/) for details.
+See [Listen Fields](/configuration/shared/listen) for details.

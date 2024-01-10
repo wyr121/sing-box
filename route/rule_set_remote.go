@@ -55,7 +55,7 @@ func NewRemoteRuleSet(ctx context.Context, router adapter.Router, logger logger.
 		logger:         logger,
 		options:        options,
 		updateInterval: updateInterval,
-		pauseManager:   service.FromContext[pause.Manager](ctx),
+		pauseManager:   pause.ManagerFromContext(ctx),
 	}
 }
 
@@ -128,7 +128,9 @@ func (s *RemoteRuleSet) loadBytes(content []byte) error {
 	switch s.options.Format {
 	case C.RuleSetFormatSource:
 		var compat option.PlainRuleSetCompat
-		compat, err = json.UnmarshalExtended[option.PlainRuleSetCompat](content)
+		decoder := json.NewDecoder(json.NewCommentFilter(bytes.NewReader(content)))
+		decoder.DisallowUnknownFields()
+		err = decoder.Decode(&compat)
 		if err != nil {
 			return err
 		}

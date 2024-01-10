@@ -330,7 +330,10 @@ flowchart TB
                 "invert": true
               },
               {
-                "geosite": "cn",
+                "geosite": [
+                  "cn",
+                  "category-companies@cn"
+                ],
               }
             ],
             "server": "local"
@@ -382,7 +385,10 @@ flowchart TB
                 "invert": true
               },
               {
-                "rule_set": "geosite-cn",
+                "rule_set": [
+                  "geosite-cn",
+                  "geosite-category-companies@cn"
+                ]
               }
             ],
             "server": "local"
@@ -402,6 +408,12 @@ flowchart TB
             "tag": "geosite-geolocation-!cn",
             "format": "binary",
             "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-!cn.srs"
+          },
+          {
+            "type": "remote",
+            "tag": "geosite-category-companies@cn",
+            "format": "binary",
+            "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-companies@cn.srs"
           }
         ]
       }
@@ -475,7 +487,10 @@ flowchart TB
                 "invert": true
               },
               {
-                "geosite": "cn",
+                "geosite": [
+                  "cn",
+                  "category-companies@cn"
+                ],
                 "geoip": "cn"
               }
             ],
@@ -555,7 +570,8 @@ flowchart TB
               {
                 "rule_set": [
                   "geoip-cn",
-                  "geosite-cn"
+                  "geosite-cn",
+                  "geosite-category-companies@cn"
                 ]
               }
             ],
@@ -580,6 +596,12 @@ flowchart TB
             "tag": "geosite-geolocation-!cn",
             "format": "binary",
             "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-!cn.srs"
+          },
+          {
+            "type": "remote",
+            "tag": "geosite-category-companies@cn",
+            "format": "binary",
+            "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-companies@cn.srs"
           }
         ]
       }

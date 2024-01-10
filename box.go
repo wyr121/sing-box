@@ -18,7 +18,9 @@ import (
 	"github.com/sagernet/sing-box/log"
 	"github.com/sagernet/sing-box/option"
 	"github.com/sagernet/sing-box/outbound"
+	"github.com/sagernet/sing-box/proxyprovider"
 	"github.com/sagernet/sing-box/route"
+	"github.com/sagernet/sing-box/script"
 	"github.com/sagernet/sing/common"
 	E "github.com/sagernet/sing/common/exceptions"
 	F "github.com/sagernet/sing/common/format"
@@ -29,16 +31,19 @@ import (
 var _ adapter.Service = (*Box)(nil)
 
 type Box struct {
-	createdAt    time.Time
-	router       adapter.Router
-	inbounds     []adapter.Inbound
-	outbounds    []adapter.Outbound
-	logFactory   log.Factory
-	logger       log.ContextLogger
-	preServices1 map[string]adapter.Service
-	preServices2 map[string]adapter.Service
-	postServices map[string]adapter.Service
-	done         chan struct{}
+	createdAt      time.Time
+	router         adapter.Router
+	inbounds       []adapter.Inbound
+	outbounds      []adapter.Outbound
+	proxyProviders []adapter.ProxyProvider
+	scripts        []*script.Script
+	logFactory     log.Factory
+	logger         log.ContextLogger
+	preServices1   map[string]adapter.Service
+	preServices2   map[string]adapter.Service
+	postServices   map[string]adapter.Service
+	reloadChan     chan struct{}
+	done           chan struct{}
 }
 
 type Options struct {
@@ -55,7 +60,8 @@ func New(options Options) (*Box, error) {
 		ctx = context.Background()
 	}
 	ctx = service.ContextWithDefaultRegistry(ctx)
-	ctx = pause.WithDefaultManager(ctx)
+	ctx = pause.ContextWithDefaultManager(ctx)
+	reloadChan := make(chan struct{}, 1)
 	experimentalOptions := common.PtrValueOrDefault(options.Experimental)
 	applyDebugOptions(common.PtrValueOrDefault(experimentalOptions.Debug))
 	var needCacheFile bool
@@ -85,14 +91,36 @@ func New(options Options) (*Box, error) {
 	if err != nil {
 		return nil, E.Cause(err, "create log factory")
 	}
+	routeOptions := common.PtrValueOrDefault(options.Route)
+	dnsOptions := common.PtrValueOrDefault(options.DNS)
+	var scripts []*script.Script
+	for i, scriptOptions := range options.Scripts {
+		var tag string
+		if scriptOptions.Tag != "" {
+			tag = scriptOptions.Tag
+		} else {
+			tag = F.ToString(i)
+		}
+		s, err := script.NewScript(
+			ctx,
+			logFactory.NewLogger(F.ToString("script", "[", tag, "]")),
+			tag,
+			scriptOptions,
+		)
+		if err != nil {
+			return nil, E.Cause(err, "parse script[", i, "]")
+		}
+		scripts = append(scripts, s)
+	}
 	router, err := route.NewRouter(
 		ctx,
 		logFactory,
-		common.PtrValueOrDefault(options.Route),
-		common.PtrValueOrDefault(options.DNS),
+		routeOptions,
+		dnsOptions,
 		common.PtrValueOrDefault(options.NTP),
 		options.Inbounds,
 		options.PlatformInterface,
+		reloadChan,
 	)
 	if err != nil {
 		return nil, E.Cause(err, "parse route options")
@@ -138,12 +166,49 @@ func New(options Options) (*Box, error) {
 		}
 		outbounds = append(outbounds, out)
 	}
+	var proxyProviders []adapter.ProxyProvider
+	if len(options.ProxyProviders) > 0 {
+		proxyProviders = make([]adapter.ProxyProvider, 0, len(options.ProxyProviders))
+		for i, proxyProviderOptions := range options.ProxyProviders {
+			var pp adapter.ProxyProvider
+			var tag string
+			if proxyProviderOptions.Tag != "" {
+				tag = proxyProviderOptions.Tag
+			} else {
+				tag = F.ToString(i)
+				proxyProviderOptions.Tag = tag
+			}
+			pp, err = proxyprovider.NewProxyProvider(ctx, router, logFactory.NewLogger(F.ToString("proxyprovider[", tag, "]")), tag, proxyProviderOptions)
+			if err != nil {
+				return nil, E.Cause(err, "parse proxyprovider[", i, "]")
+			}
+			outboundOptions, err := pp.StartGetOutbounds()
+			if err != nil {
+				return nil, E.Cause(err, "get outbounds from proxyprovider[", i, "]")
+			}
+			for i, outboundOptions := range outboundOptions {
+				var out adapter.Outbound
+				tag := outboundOptions.Tag
+				out, err = outbound.New(
+					ctx,
+					router,
+					logFactory.NewLogger(F.ToString("outbound/", outboundOptions.Type, "[", tag, "]")),
+					tag,
+					outboundOptions)
+				if err != nil {
+					return nil, E.Cause(err, "parse proxyprovider ["+pp.Tag()+"] outbound[", i, "]")
+				}
+				outbounds = append(outbounds, out)
+			}
+			proxyProviders = append(proxyProviders, pp)
+		}
+	}
 	err = router.Initialize(inbounds, outbounds, func() adapter.Outbound {
 		out, oErr := outbound.New(ctx, router, logFactory.NewLogger("outbound/direct"), "direct", option.Outbound{Type: "direct", Tag: "default"})
 		common.Must(oErr)
 		outbounds = append(outbounds, out)
 		return out
-	})
+	}, proxyProviders)
 	if err != nil {
 		return nil, err
 	}
@@ -157,12 +222,9 @@ func New(options Options) (*Box, error) {
 	preServices2 := make(map[string]adapter.Service)
 	postServices := make(map[string]adapter.Service)
 	if needCacheFile {
-		cacheFile := service.FromContext[adapter.CacheFile](ctx)
-		if cacheFile == nil {
-			cacheFile = cachefile.New(ctx, common.PtrValueOrDefault(experimentalOptions.CacheFile))
-			service.MustRegister[adapter.CacheFile](ctx, cacheFile)
-		}
+		cacheFile := cachefile.New(ctx, common.PtrValueOrDefault(experimentalOptions.CacheFile))
 		preServices1["cache file"] = cacheFile
+		service.MustRegister[adapter.CacheFile](ctx, cacheFile)
 	}
 	if needClashAPI {
 		clashAPIOptions := common.PtrValueOrDefault(experimentalOptions.ClashAPI)
@@ -183,16 +245,19 @@ func New(options Options) (*Box, error) {
 		preServices2["v2ray api"] = v2rayServer
 	}
 	return &Box{
-		router:       router,
-		inbounds:     inbounds,
-		outbounds:    outbounds,
-		createdAt:    createdAt,
-		logFactory:   logFactory,
-		logger:       logFactory.Logger(),
-		preServices1: preServices1,
-		preServices2: preServices2,
-		postServices: postServices,
-		done:         make(chan struct{}),
+		router:         router,
+		inbounds:       inbounds,
+		outbounds:      outbounds,
+		proxyProviders: proxyProviders,
+		scripts:        scripts,
+		createdAt:      createdAt,
+		logFactory:     logFactory,
+		logger:         logFactory.Logger(),
+		preServices1:   preServices1,
+		preServices2:   preServices2,
+		postServices:   postServices,
+		done:           make(chan struct{}),
+		reloadChan:     reloadChan,
 	}, nil
 }
 
@@ -242,6 +307,12 @@ func (s *Box) preStart() error {
 	if err != nil {
 		return E.Cause(err, "start logger")
 	}
+	for _, script := range s.scripts {
+		err := script.PreStart()
+		if err != nil {
+			return E.Cause(err, "pre-start script[", script.Tag(), "]")
+		}
+	}
 	for serviceName, service := range s.preServices1 {
 		if preService, isPreService := service.(adapter.PreStarter); isPreService {
 			monitor.Start("pre-start ", serviceName)
@@ -261,10 +332,6 @@ func (s *Box) preStart() error {
 				return E.Cause(err, "pre-start ", serviceName)
 			}
 		}
-	}
-	err = s.router.PreStart()
-	if err != nil {
-		return E.Cause(err, "pre-start router")
 	}
 	err = s.startOutbounds()
 	if err != nil {
@@ -288,6 +355,20 @@ func (s *Box) start() error {
 		err = service.Start()
 		if err != nil {
 			return E.Cause(err, "start ", serviceName)
+		}
+	}
+	for serviceName, service := range s.preServices2 {
+		s.logger.Trace("starting ", serviceName)
+		err = service.Start()
+		if err != nil {
+			return E.Cause(err, "start ", serviceName)
+		}
+	}
+	for _, proxyProvider := range s.proxyProviders {
+		s.logger.Trace("starting proxyprovider ", proxyProvider.Tag())
+		err = proxyProvider.Start()
+		if err != nil {
+			return E.Cause(err, "start proxyprovider ", proxyProvider.Tag())
 		}
 	}
 	for i, in := range s.inbounds {
@@ -320,8 +401,17 @@ func (s *Box) postStart() error {
 			}
 		}
 	}
-
-	return s.router.PostStart()
+	err := s.router.PostStart()
+	if err != nil {
+		return E.Cause(err, "post-start router")
+	}
+	for _, script := range s.scripts {
+		err := script.PostStart()
+		if err != nil {
+			return E.Cause(err, "post-start script[", script.Tag(), "]")
+		}
+	}
+	return nil
 }
 
 func (s *Box) Close() error {
@@ -333,12 +423,23 @@ func (s *Box) Close() error {
 	}
 	monitor := taskmonitor.New(s.logger, C.DefaultStopTimeout)
 	var errors error
+	for _, script := range s.scripts {
+		errors = E.Append(errors, script.PreClose(), func(err error) error {
+			return E.Cause(err, "pre-close script[", script.Tag(), "]")
+		})
+	}
 	for serviceName, service := range s.postServices {
 		monitor.Start("close ", serviceName)
 		errors = E.Append(errors, service.Close(), func(err error) error {
 			return E.Cause(err, "close ", serviceName)
 		})
 		monitor.Finish()
+	}
+	for _, proxyProvider := range s.proxyProviders {
+		s.logger.Trace("closing proxyprovider ", proxyProvider.Tag())
+		errors = E.Append(errors, proxyProvider.Close(), func(err error) error {
+			return E.Cause(err, "close proxyprovider ", proxyProvider.Tag())
+		})
 	}
 	for i, in := range s.inbounds {
 		monitor.Start("close inbound/", in.Type(), "[", i, "]")
@@ -375,6 +476,12 @@ func (s *Box) Close() error {
 		})
 		monitor.Finish()
 	}
+	for _, script := range s.scripts {
+		errors = E.Append(errors, script.PostClose(), func(err error) error {
+			return E.Cause(err, "post-close script[", script.Tag(), "]")
+		})
+	}
+	s.logger.Trace("closing log factory")
 	if err := common.Close(s.logFactory); err != nil {
 		errors = E.Append(errors, err, func(err error) error {
 			return E.Cause(err, "close logger")
@@ -385,4 +492,8 @@ func (s *Box) Close() error {
 
 func (s *Box) Router() adapter.Router {
 	return s.router
+}
+
+func (s *Box) ReloadChan() <-chan struct{} {
+	return s.reloadChan
 }

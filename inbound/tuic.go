@@ -52,12 +52,6 @@ func NewTUIC(ctx context.Context, router adapter.Router, logger log.ContextLogge
 		},
 		tlsConfig: tlsConfig,
 	}
-	var udpTimeout time.Duration
-	if options.UDPTimeout != 0 {
-		udpTimeout = time.Duration(options.UDPTimeout)
-	} else {
-		udpTimeout = C.UDPTimeout
-	}
 	service, err := tuic.NewService[int](tuic.ServiceOptions{
 		Context:           ctx,
 		Logger:            logger,
@@ -66,7 +60,6 @@ func NewTUIC(ctx context.Context, router adapter.Router, logger log.ContextLogge
 		AuthTimeout:       time.Duration(options.AuthTimeout),
 		ZeroRTTHandshake:  options.ZeroRTTHandshake,
 		Heartbeat:         time.Duration(options.Heartbeat),
-		UDPTimeout:        udpTimeout,
 		Handler:           adapter.NewUpstreamHandler(adapter.InboundContext{}, inbound.newConnection, inbound.newPacketConnection, nil),
 	})
 	if err != nil {

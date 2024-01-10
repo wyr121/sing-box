@@ -5,7 +5,6 @@ import (
 	"net"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/common/taskmonitor"
@@ -44,11 +43,15 @@ func NewTun(ctx context.Context, router adapter.Router, logger log.ContextLogger
 	if tunMTU == 0 {
 		tunMTU = 9000
 	}
-	var udpTimeout time.Duration
+	gsoMaxSize := options.GSOMaxSize
+	if gsoMaxSize == 0 {
+		gsoMaxSize = 65536
+	}
+	var udpTimeout int64
 	if options.UDPTimeout != 0 {
-		udpTimeout = time.Duration(options.UDPTimeout)
+		udpTimeout = options.UDPTimeout
 	} else {
-		udpTimeout = C.UDPTimeout
+		udpTimeout = int64(C.UDPTimeout.Seconds())
 	}
 	includeUID := uidToRange(options.IncludeUID)
 	if len(options.IncludeUIDRange) > 0 {
@@ -76,6 +79,7 @@ func NewTun(ctx context.Context, router adapter.Router, logger log.ContextLogger
 			Name:                     options.InterfaceName,
 			MTU:                      tunMTU,
 			GSO:                      options.GSO,
+			GSOMaxSize:               gsoMaxSize,
 			Inet4Address:             options.Inet4Address,
 			Inet6Address:             options.Inet6Address,
 			AutoRoute:                options.AutoRoute,
@@ -95,7 +99,7 @@ func NewTun(ctx context.Context, router adapter.Router, logger log.ContextLogger
 			TableIndex:               2022,
 		},
 		endpointIndependentNat: options.EndpointIndependentNat,
-		udpTimeout:             int64(udpTimeout.Seconds()),
+		udpTimeout:             udpTimeout,
 		stack:                  options.Stack,
 		platformInterface:      platformInterface,
 		platformOptions:        common.PtrValueOrDefault(options.Platform),

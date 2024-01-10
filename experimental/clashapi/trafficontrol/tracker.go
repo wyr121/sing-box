@@ -1,6 +1,7 @@
 package trafficontrol
 
 import (
+	"encoding/json"
 	"net"
 	"net/netip"
 	"time"
@@ -9,7 +10,6 @@ import (
 	"github.com/sagernet/sing/common"
 	"github.com/sagernet/sing/common/atomic"
 	"github.com/sagernet/sing/common/bufio"
-	"github.com/sagernet/sing/common/json"
 	N "github.com/sagernet/sing/common/network"
 
 	"github.com/gofrs/uuid/v5"

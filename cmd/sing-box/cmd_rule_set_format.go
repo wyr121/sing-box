@@ -50,14 +50,18 @@ func formatRuleSet(sourcePath string) error {
 	if err != nil {
 		return err
 	}
-	plainRuleSet, err := json.UnmarshalExtended[option.PlainRuleSetCompat](content)
+	decoder := json.NewDecoder(json.NewCommentFilter(bytes.NewReader(content)))
+	decoder.DisallowUnknownFields()
+	var plainRuleSet option.PlainRuleSetCompat
+	err = decoder.Decode(&plainRuleSet)
 	if err != nil {
 		return err
 	}
+	ruleSet := plainRuleSet.Upgrade()
 	buffer := new(bytes.Buffer)
 	encoder := json.NewEncoder(buffer)
 	encoder.SetIndent("", "  ")
-	err = encoder.Encode(plainRuleSet)
+	err = encoder.Encode(ruleSet)
 	if err != nil {
 		return E.Cause(err, "encode config")
 	}

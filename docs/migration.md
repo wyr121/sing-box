@@ -2,36 +2,18 @@
 icon: material/arrange-bring-forward
 ---
 
-## 1.9.0
+## 1.8.0
 
 !!! warning "Unstable"
 
     This version is still under development, and the following migration guide may be changed in the future.
 
-### `domain_suffix` behavior update
-
-For historical reasons, sing-box's `domain_suffix` rule matches literal prefixes instead of the same as other projects.
-
-sing-box 1.9.0 modifies the behavior of `domain_suffix`: If the rule value is prefixed with `.`,
-the behavior is unchanged, otherwise it matches `(domain|.+\.domain)` instead.
-
-### `process_path` format update on Windows
-
-The `process_path` rule of sing-box is inherited from Clash,
-the original code uses the local system's path format (e.g. `\Device\HarddiskVolume1\folder\program.exe`),
-but when the device has multiple disks, the HarddiskVolume serial number is not stable.
-
-sing-box 1.9.0 make QueryFullProcessImageNameW output a Win32 path (such as `C:\folder\program.exe`),
-which will disrupt the existing `process_path` use cases in Windows.
-
-## 1.8.0
-
 ### :material-close-box: Migrate cache file from Clash API to independent options
 
 !!! info "References"
 
-    [Clash API](/configuration/experimental/clash-api/) / 
-    [Cache File](/configuration/experimental/cache-file/)
+    [Clash API](/configuration/experimental/clash-api) / 
+    [Cache File](/configuration/experimental/cache-file)
 
 === ":material-card-remove: Deprecated"
 
@@ -68,11 +50,11 @@ which will disrupt the existing `process_path` use cases in Windows.
 
 !!! info "References"
 
-    [GeoIP](/configuration/route/geoip/) / 
-    [Route](/configuration/route/) / 
-    [Route Rule](/configuration/route/rule/) / 
-    [DNS Rule](/configuration/dns/rule/) / 
-    [Rule Set](/configuration/rule-set/)
+    [GeoIP](/configuration/route/geoip) / 
+    [Route](/configuration/route) / 
+    [Route Rule](/configuration/route/rule) / 
+    [DNS Rule](/configuration/dns/rule) / 
+    [Rule Set](/configuration/rule-set)
 
 !!! tip
 
@@ -153,11 +135,11 @@ which will disrupt the existing `process_path` use cases in Windows.
 
 !!! info "References"
 
-    [Geosite](/configuration/route/geosite/) / 
-    [Route](/configuration/route/) / 
-    [Route Rule](/configuration/route/rule/) / 
-    [DNS Rule](/configuration/dns/rule/) / 
-    [Rule Set](/configuration/rule-set/)
+    [Geosite](/configuration/route/geosite) / 
+    [Route](/configuration/route) / 
+    [Route Rule](/configuration/route/rule) / 
+    [DNS Rule](/configuration/dns/rule) / 
+    [Rule Set](/configuration/rule-set)
 
 !!! tip
 

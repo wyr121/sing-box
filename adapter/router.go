@@ -6,8 +6,8 @@ import (
 	"net/netip"
 
 	"github.com/sagernet/sing-box/common/geoip"
-	"github.com/sagernet/sing-dns"
-	"github.com/sagernet/sing-tun"
+	dns "github.com/sagernet/sing-dns"
+	tun "github.com/sagernet/sing-tun"
 	"github.com/sagernet/sing/common/control"
 	N "github.com/sagernet/sing/common/network"
 	"github.com/sagernet/sing/service"
@@ -17,12 +17,14 @@ import (
 
 type Router interface {
 	Service
-	PreStarter
 	PostStarter
 
 	Outbounds() []Outbound
 	Outbound(tag string) (Outbound, bool)
 	DefaultOutbound(network string) (Outbound, error)
+
+	ProxyProviders() []ProxyProvider
+	ProxyProvider(tag string) (ProxyProvider, bool)
 
 	FakeIPStore() FakeIPStore
 
@@ -30,6 +32,7 @@ type Router interface {
 
 	GeoIPReader() *geoip.Reader
 	LoadGeosite(code string) (Rule, error)
+	UpdateGeoDatabase()
 
 	RuleSet(tag string) (RuleSet, bool)
 
@@ -57,6 +60,8 @@ type Router interface {
 	SetV2RayServer(server V2RayServer)
 
 	ResetNetwork() error
+
+	Reload()
 }
 
 func ContextWithRouter(ctx context.Context, router Router) context.Context {

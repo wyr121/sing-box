@@ -11,7 +11,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      TAGS: with_quic,with_wireguard,with_gvisor,with_utls,with_ech,with_clash_api,with_outbound_provider
+      TAGS: with_quic,with_wireguard,with_gvisor,with_utls,with_ech,with_clash_api,with_provider
 
     steps:
       - uses: actions/checkout@v4

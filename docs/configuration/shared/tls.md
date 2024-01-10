@@ -173,9 +173,10 @@ By default, the maximum version is currently TLS 1.3.
 
 #### cipher_suites
 
-A list of enabled TLS 1.0–1.2 cipher suites. The order of the list is ignored. Note that TLS 1.3 cipher suites are not configurable.
+The elliptic curves that will be used in an ECDHE handshake, in preference order.
 
-If empty, a safe default list is used. The default cipher suites might change over time.
+If empty, the default will be used. The client will use the first preference as the type for its key share in TLS 1.3.
+This may change in the future.
 
 #### certificate
 
@@ -362,7 +363,7 @@ The MAC key.
 
 ACME DNS01 challenge field. If configured, other challenge methods will be disabled.
 
-See [DNS01 Challenge Fields](/configuration/shared/dns01_challenge/) for details.
+See [DNS01 Challenge Fields](/configuration/shared/dns01_challenge) for details.
 
 ### Reality Fields
 
@@ -372,7 +373,7 @@ See [DNS01 Challenge Fields](/configuration/shared/dns01_challenge/) for details
 
 ==Required==
 
-Handshake server address and [Dial options](/configuration/shared/dial/).
+Handshake server address and [Dial options](/configuration/shared/dial).
 
 #### private_key
 

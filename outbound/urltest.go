@@ -38,13 +38,13 @@ type URLTest struct {
 	idleTimeout                  time.Duration
 	group                        *URLTestGroup
 	interruptExternalConnections bool
+	started                      bool
 }
 
 func NewURLTest(ctx context.Context, router adapter.Router, logger log.ContextLogger, tag string, options option.URLTestOutboundOptions) (*URLTest, error) {
 	outbound := &URLTest{
 		myOutboundAdapter: myOutboundAdapter{
 			protocol:     C.TypeURLTest,
-			network:      []string{N.NetworkTCP, N.NetworkUDP},
 			router:       router,
 			logger:       logger,
 			tag:          tag,
@@ -62,6 +62,13 @@ func NewURLTest(ctx context.Context, router adapter.Router, logger log.ContextLo
 		return nil, E.New("missing tags")
 	}
 	return outbound, nil
+}
+
+func (s *URLTest) Network() []string {
+	if s.group == nil {
+		return []string{N.NetworkTCP, N.NetworkUDP}
+	}
+	return s.group.Select(N.NetworkTCP).Network()
 }
 
 func (s *URLTest) Start() error {
@@ -103,12 +110,7 @@ func (s *URLTest) Close() error {
 }
 
 func (s *URLTest) Now() string {
-	if s.group.selectedOutboundTCP != nil {
-		return s.group.selectedOutboundTCP.Tag()
-	} else if s.group.selectedOutboundUDP != nil {
-		return s.group.selectedOutboundUDP.Tag()
-	}
-	return ""
+	return s.group.Select(N.NetworkTCP).Tag()
 }
 
 func (s *URLTest) All() []string {
@@ -126,9 +128,6 @@ func (s *URLTest) CheckOutbounds() {
 func (s *URLTest) DialContext(ctx context.Context, network string, destination M.Socksaddr) (net.Conn, error) {
 	s.group.Touch()
 	outbound := s.group.Select(network)
-	if outbound == nil {
-		return nil, E.New("missing supported outbound")
-	}
 	conn, err := outbound.DialContext(ctx, network, destination)
 	if err == nil {
 		return s.group.interruptGroup.NewConn(conn, interrupt.IsExternalConnectionFromContext(ctx)), nil
@@ -141,9 +140,6 @@ func (s *URLTest) DialContext(ctx context.Context, network string, destination M
 func (s *URLTest) ListenPacket(ctx context.Context, destination M.Socksaddr) (net.PacketConn, error) {
 	s.group.Touch()
 	outbound := s.group.Select(N.NetworkUDP)
-	if outbound == nil {
-		return nil, E.New("missing supported outbound")
-	}
 	conn, err := outbound.ListenPacket(ctx, destination)
 	if err == nil {
 		return s.group.interruptGroup.NewPacketConn(conn, interrupt.IsExternalConnectionFromContext(ctx)), nil
@@ -233,7 +229,7 @@ func NewURLTestGroup(
 		idleTimeout:                  idleTimeout,
 		history:                      history,
 		close:                        make(chan struct{}),
-		pauseManager:                 service.FromContext[pause.Manager](ctx),
+		pauseManager:                 pause.ManagerFromContext(ctx),
 		interruptGroup:               interrupt.NewGroup(),
 		interruptExternalConnections: interruptExternalConnections,
 	}, nil
@@ -384,12 +380,12 @@ func (g *URLTestGroup) urlTest(ctx context.Context, force bool) (map[string]uint
 func (g *URLTestGroup) performUpdateCheck() {
 	outbound := g.Select(N.NetworkTCP)
 	var updated bool
-	if outbound != nil && outbound != g.selectedOutboundTCP {
+	if outbound != g.selectedOutboundTCP {
 		g.selectedOutboundTCP = outbound
 		updated = true
 	}
 	outbound = g.Select(N.NetworkUDP)
-	if outbound != nil && outbound != g.selectedOutboundUDP {
+	if outbound != g.selectedOutboundUDP {
 		g.selectedOutboundUDP = outbound
 		updated = true
 	}

@@ -133,7 +133,7 @@ func create() (*box.Box, context.CancelFunc, error) {
 		}
 		options.Log.DisableColor = true
 	}
-	ctx, cancel := context.WithCancel(globalCtx)
+	ctx, cancel := context.WithCancel(context.Background())
 	instance, err := box.New(box.Options{
 		Context: ctx,
 		Options: options,
@@ -177,20 +177,31 @@ func run() error {
 		}
 		runtimeDebug.FreeOSMemory()
 		for {
-			osSignal := <-osSignals
-			if osSignal == syscall.SIGHUP {
+			reloadTag := false
+			select {
+			case osSignal := <-osSignals:
+				if osSignal == syscall.SIGHUP {
+					err = check()
+					if err != nil {
+						log.Error(E.Cause(err, "reload service"))
+						continue
+					}
+					reloadTag = true
+				}
+			case <-instance.ReloadChan():
 				err = check()
 				if err != nil {
 					log.Error(E.Cause(err, "reload service"))
 					continue
 				}
+				reloadTag = true
 			}
 			cancel()
 			closeCtx, closed := context.WithCancel(context.Background())
 			go closeMonitor(closeCtx)
 			instance.Close()
 			closed()
-			if osSignal != syscall.SIGHUP {
+			if !reloadTag {
 				return nil
 			}
 			break

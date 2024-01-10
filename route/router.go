@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/user"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/sagernet/sing-box/adapter"
@@ -26,10 +27,10 @@ import (
 	"github.com/sagernet/sing-box/option"
 	"github.com/sagernet/sing-box/outbound"
 	"github.com/sagernet/sing-box/transport/fakeip"
-	"github.com/sagernet/sing-dns"
+	dns "github.com/sagernet/sing-dns"
 	mux "github.com/sagernet/sing-mux"
-	"github.com/sagernet/sing-tun"
-	"github.com/sagernet/sing-vmess"
+	tun "github.com/sagernet/sing-tun"
+	vmess "github.com/sagernet/sing-vmess"
 	"github.com/sagernet/sing/common"
 	"github.com/sagernet/sing/common/buf"
 	"github.com/sagernet/sing/common/bufio"
@@ -55,6 +56,8 @@ type Router struct {
 	inboundByTag                       map[string]adapter.Inbound
 	outbounds                          []adapter.Outbound
 	outboundByTag                      map[string]adapter.Outbound
+	proxyProviders                     []adapter.ProxyProvider
+	proxyProviderByTag                 map[string]adapter.ProxyProvider
 	rules                              []adapter.Rule
 	defaultDetour                      string
 	defaultOutboundForConnection       adapter.Outbound
@@ -66,6 +69,11 @@ type Router struct {
 	geoIPReader                        *geoip.Reader
 	geositeReader                      *geosite.Reader
 	geositeCache                       map[string]adapter.Rule
+	geositeUpdateLock                  sync.Mutex
+	geoIPUpdateLock                    sync.Mutex
+	geositePath                        string
+	geoIPPath                          string
+	geoUpdateLock                      sync.Mutex
 	needFindProcess                    bool
 	dnsClient                          *dns.Client
 	defaultDomainStrategy              dns.DomainStrategy
@@ -94,6 +102,7 @@ type Router struct {
 	needWIFIState                      bool
 	needPackageManager                 bool
 	wifiState                          adapter.WIFIState
+	reloadChan                         chan<- struct{}
 	started                            bool
 }
 
@@ -105,6 +114,7 @@ func NewRouter(
 	ntpOptions option.NTPOptions,
 	inbounds []option.Inbound,
 	platformInterface platform.Interface,
+	reloadChan chan<- struct{},
 ) (*Router, error) {
 	router := &Router{
 		ctx:                   ctx,
@@ -125,9 +135,10 @@ func NewRouter(
 		autoDetectInterface:   options.AutoDetectInterface,
 		defaultInterface:      options.DefaultInterface,
 		defaultMark:           options.DefaultMark,
-		pauseManager:          service.FromContext[pause.Manager](ctx),
+		pauseManager:          pause.ManagerFromContext(ctx),
 		platformInterface:     platformInterface,
 		needWIFIState:         hasRule(options.Rules, isWIFIRule) || hasDNSRule(dnsOptions.Rules, isWIFIDNSRule),
+		reloadChan:            reloadChan,
 		needPackageManager: C.IsAndroid && platformInterface == nil && common.Any(inbounds, func(inbound option.Inbound) bool {
 			return len(inbound.TunOptions.IncludePackage) > 0 || len(inbound.TunOptions.ExcludePackage) > 0
 		}),
@@ -332,7 +343,7 @@ func NewRouter(
 	return router, nil
 }
 
-func (r *Router) Initialize(inbounds []adapter.Inbound, outbounds []adapter.Outbound, defaultOutbound func() adapter.Outbound) error {
+func (r *Router) Initialize(inbounds []adapter.Inbound, outbounds []adapter.Outbound, defaultOutbound func() adapter.Outbound, proxyProviders []adapter.ProxyProvider) error {
 	inboundByTag := make(map[string]adapter.Inbound)
 	for _, inbound := range inbounds {
 		inboundByTag[inbound.Tag()] = inbound
@@ -340,6 +351,13 @@ func (r *Router) Initialize(inbounds []adapter.Inbound, outbounds []adapter.Outb
 	outboundByTag := make(map[string]adapter.Outbound)
 	for _, detour := range outbounds {
 		outboundByTag[detour.Tag()] = detour
+	}
+	var proxyProviderByTag map[string]adapter.ProxyProvider
+	if len(proxyProviders) > 0 {
+		proxyProviderByTag = make(map[string]adapter.ProxyProvider)
+		for _, proxyProvider := range proxyProviders {
+			proxyProviderByTag[proxyProvider.Tag()] = proxyProvider
+		}
 	}
 	var defaultOutboundForConnection adapter.Outbound
 	var defaultOutboundForPacketConnection adapter.Outbound
@@ -411,40 +429,13 @@ func (r *Router) Initialize(inbounds []adapter.Inbound, outbounds []adapter.Outb
 			return E.New("outbound not found for rule[", i, "]: ", rule.Outbound())
 		}
 	}
+	r.proxyProviders = proxyProviders
+	r.proxyProviderByTag = proxyProviderByTag
 	return nil
 }
 
 func (r *Router) Outbounds() []adapter.Outbound {
 	return r.outbounds
-}
-
-func (r *Router) PreStart() error {
-	monitor := taskmonitor.New(r.logger, C.DefaultStartTimeout)
-	if r.interfaceMonitor != nil {
-		monitor.Start("initialize interface monitor")
-		err := r.interfaceMonitor.Start()
-		monitor.Finish()
-		if err != nil {
-			return err
-		}
-	}
-	if r.networkMonitor != nil {
-		monitor.Start("initialize network monitor")
-		err := r.networkMonitor.Start()
-		monitor.Finish()
-		if err != nil {
-			return err
-		}
-	}
-	if r.fakeIPStore != nil {
-		monitor.Start("initialize fakeip store")
-		err := r.fakeIPStore.Start()
-		monitor.Finish()
-		if err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func (r *Router) Start() error {
@@ -456,10 +447,34 @@ func (r *Router) Start() error {
 		if err != nil {
 			return err
 		}
+		if r.geoIPOptions.AutoUpdateInterval > 0 {
+			go r.loopUpdateGeoIPDatabase()
+			r.logger.Info("geoip database auto update enabled")
+		}
 	}
 	if r.needGeositeDatabase {
 		monitor.Start("initialize geosite database")
 		err := r.prepareGeositeDatabase()
+		monitor.Finish()
+		if err != nil {
+			return err
+		}
+		if r.geositeOptions.AutoUpdateInterval > 0 {
+			go r.loopUpdateGeositeDatabase()
+			r.logger.Info("geosite database auto update enabled")
+		}
+	}
+	if r.interfaceMonitor != nil {
+		monitor.Start("initialize interface monitor")
+		err := r.interfaceMonitor.Start()
+		monitor.Finish()
+		if err != nil {
+			return err
+		}
+	}
+	if r.networkMonitor != nil {
+		monitor.Start("initialize network monitor")
+		err := r.networkMonitor.Start()
 		monitor.Finish()
 		if err != nil {
 			return err
@@ -485,7 +500,14 @@ func (r *Router) Start() error {
 		r.geositeCache = nil
 		r.geositeReader = nil
 	}
-
+	if r.fakeIPStore != nil {
+		monitor.Start("initialize fakeip store")
+		err := r.fakeIPStore.Start()
+		monitor.Finish()
+		if err != nil {
+			return err
+		}
+	}
 	if len(r.ruleSets) > 0 {
 		monitor.Start("initialize rule-set")
 		ruleSetStartContext := NewRuleSetStartContext()
@@ -567,7 +589,6 @@ func (r *Router) Start() error {
 		r.updateWIFIState()
 		monitor.Finish()
 	}
-
 	for i, rule := range r.rules {
 		monitor.Start("initialize rule[", i, "]")
 		err := rule.Start()
@@ -629,7 +650,7 @@ func (r *Router) Close() error {
 	}
 	if r.geoIPReader != nil {
 		monitor.Start("close geoip reader")
-		err = E.Append(err, r.geoIPReader.Close(), func(err error) error {
+		err = E.Append(err, common.Close(r.geoIPReader), func(err error) error {
 			return E.Cause(err, "close geoip reader")
 		})
 		monitor.Finish()
@@ -714,10 +735,6 @@ func (r *Router) RuleSet(tag string) (adapter.RuleSet, bool) {
 }
 
 func (r *Router) RouteConnection(ctx context.Context, conn net.Conn, metadata adapter.InboundContext) error {
-	if r.pauseManager.IsDevicePaused() {
-		return E.New("reject connection to ", metadata.Destination, " while device paused")
-	}
-
 	if metadata.InboundDetour != "" {
 		if metadata.LastInbound == metadata.InboundDetour {
 			return E.New("routing loop on detour: ", metadata.InboundDetour)
@@ -842,9 +859,6 @@ func (r *Router) RouteConnection(ctx context.Context, conn net.Conn, metadata ad
 }
 
 func (r *Router) RoutePacketConnection(ctx context.Context, conn N.PacketConn, metadata adapter.InboundContext) error {
-	if r.pauseManager.IsDevicePaused() {
-		return E.New("reject packet connection to ", metadata.Destination, " while device paused")
-	}
 	if metadata.InboundDetour != "" {
 		if metadata.LastInbound == metadata.InboundDetour {
 			return E.New("routing loop on detour: ", metadata.InboundDetour)
@@ -1167,6 +1181,26 @@ func (r *Router) ResetNetwork() error {
 		transport.Reset()
 	}
 	return nil
+}
+
+func (r *Router) ProxyProviders() []adapter.ProxyProvider {
+	return r.proxyProviders
+}
+
+func (r *Router) ProxyProvider(tag string) (proxyProvider adapter.ProxyProvider, loaded bool) {
+	if r.proxyProviderByTag != nil {
+		proxyProvider, loaded = r.proxyProviderByTag[tag]
+	}
+	return
+}
+
+func (r *Router) Reload() {
+	if r.platformInterface == nil {
+		select {
+		case r.reloadChan <- struct{}{}:
+		default:
+		}
+	}
 }
 
 func (r *Router) updateWIFIState() {

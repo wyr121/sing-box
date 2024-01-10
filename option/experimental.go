@@ -19,6 +19,7 @@ type ClashAPIOptions struct {
 	ExternalUI               string   `json:"external_ui,omitempty"`
 	ExternalUIDownloadURL    string   `json:"external_ui_download_url,omitempty"`
 	ExternalUIDownloadDetour string   `json:"external_ui_download_detour,omitempty"`
+	ExternalUIBuildin        bool     `json:"external_ui_buildin,omitempty"`
 	Secret                   string   `json:"secret,omitempty"`
 	DefaultMode              string   `json:"default_mode,omitempty"`
 	ModeList                 []string `json:"-"`

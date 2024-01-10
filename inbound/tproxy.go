@@ -5,7 +5,6 @@ import (
 	"net"
 	"net/netip"
 	"syscall"
-	"time"
 
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/common/redir"
@@ -38,15 +37,15 @@ func NewTProxy(ctx context.Context, router adapter.Router, logger log.ContextLog
 			listenOptions: options.ListenOptions,
 		},
 	}
-	var udpTimeout time.Duration
+	var udpTimeout int64
 	if options.UDPTimeout != 0 {
-		udpTimeout = time.Duration(options.UDPTimeout)
+		udpTimeout = options.UDPTimeout
 	} else {
-		udpTimeout = C.UDPTimeout
+		udpTimeout = int64(C.UDPTimeout.Seconds())
 	}
 	tproxy.connHandler = tproxy
 	tproxy.oobPacketHandler = tproxy
-	tproxy.udpNat = udpnat.New[netip.AddrPort](int64(udpTimeout.Seconds()), tproxy.upstreamContextHandler())
+	tproxy.udpNat = udpnat.New[netip.AddrPort](udpTimeout, tproxy.upstreamContextHandler())
 	tproxy.packetUpstream = tproxy.udpNat
 	return tproxy
 }

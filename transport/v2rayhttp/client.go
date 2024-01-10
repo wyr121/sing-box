@@ -7,7 +7,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"strings"
 	"time"
 
 	"github.com/sagernet/sing-box/adapter"
@@ -29,7 +28,7 @@ type Client struct {
 	serverAddr M.Socksaddr
 	transport  http.RoundTripper
 	http2      bool
-	requestURL url.URL
+	url        *url.URL
 	host       []string
 	method     string
 	headers    http.Header
@@ -59,35 +58,33 @@ func NewClient(ctx context.Context, dialer N.Dialer, serverAddr M.Socksaddr, opt
 			},
 		}
 	}
-	if options.Method == "" {
-		options.Method = http.MethodPut
-	}
-	var requestURL url.URL
-	if tlsConfig == nil {
-		requestURL.Scheme = "http"
-	} else {
-		requestURL.Scheme = "https"
-	}
-	requestURL.Host = serverAddr.String()
-	requestURL.Path = options.Path
-	err := sHTTP.URLSetPath(&requestURL, options.Path)
-	if err != nil {
-		return nil, E.Cause(err, "parse path")
-	}
-	if !strings.HasPrefix(requestURL.Path, "/") {
-		requestURL.Path = "/" + requestURL.Path
-	}
-	return &Client{
+	client := &Client{
 		ctx:        ctx,
 		dialer:     dialer,
 		serverAddr: serverAddr,
-		requestURL: requestURL,
 		host:       options.Host,
 		method:     options.Method,
 		headers:    options.Headers.Build(),
 		transport:  transport,
 		http2:      tlsConfig != nil,
-	}, nil
+	}
+	if client.method == "" {
+		client.method = "PUT"
+	}
+	var uri url.URL
+	if tlsConfig == nil {
+		uri.Scheme = "http"
+	} else {
+		uri.Scheme = "https"
+	}
+	uri.Host = serverAddr.String()
+	uri.Path = options.Path
+	err := sHTTP.URLSetPath(&uri, options.Path)
+	if err != nil {
+		return nil, E.Cause(err, "parse path")
+	}
+	client.url = &uri
+	return client, nil
 }
 
 func (c *Client) DialContext(ctx context.Context) (net.Conn, error) {
@@ -106,7 +103,7 @@ func (c *Client) dialHTTP(ctx context.Context) (net.Conn, error) {
 
 	request := &http.Request{
 		Method: c.method,
-		URL:    &c.requestURL,
+		URL:    c.url,
 		Header: c.headers.Clone(),
 	}
 	switch hostLen := len(c.host); hostLen {
@@ -126,7 +123,7 @@ func (c *Client) dialHTTP2(ctx context.Context) (net.Conn, error) {
 	request := &http.Request{
 		Method: c.method,
 		Body:   pipeInReader,
-		URL:    &c.requestURL,
+		URL:    c.url,
 		Header: c.headers.Clone(),
 	}
 	request = request.WithContext(ctx)

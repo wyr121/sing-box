@@ -23,12 +23,15 @@ const (
 	TypeVLESS        = "vless"
 	TypeTUIC         = "tuic"
 	TypeHysteria2    = "hysteria2"
+	TypeRandomAddr   = "randomaddr"
 )
 
 const (
 	TypeSelector = "selector"
 	TypeURLTest  = "urltest"
 )
+
+const TypeJSTest = "jstest"
 
 func ProxyDisplayName(proxyType string) string {
 	switch proxyType {
@@ -68,10 +71,14 @@ func ProxyDisplayName(proxyType string) string {
 		return "TUIC"
 	case TypeHysteria2:
 		return "Hysteria2"
+	case TypeRandomAddr:
+		return "RandomAddr"
 	case TypeSelector:
 		return "Selector"
 	case TypeURLTest:
 		return "URLTest"
+	case TypeJSTest:
+		return "JSTest"
 	default:
 		return "Unknown"
 	}

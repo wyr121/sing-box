@@ -55,10 +55,15 @@ func NewClient(ctx context.Context, dialer N.Dialer, serverAddr M.Socksaddr, opt
 	if !strings.HasPrefix(requestURL.Path, "/") {
 		requestURL.Path = "/" + requestURL.Path
 	}
-	headers := options.Headers.Build()
-	if host := headers.Get("Host"); host != "" {
-		headers.Del("Host")
-		requestURL.Host = host
+	headers := make(http.Header)
+	for key, value := range options.Headers {
+		headers[key] = value
+		if key == "Host" {
+			if len(value) > 1 {
+				return nil, E.New("multiple Host headers")
+			}
+			requestURL.Host = value[0]
+		}
 	}
 	if headers.Get("User-Agent") == "" {
 		headers.Set("User-Agent", "Go-http-client/1.1")
